@@ -10,16 +10,36 @@ function App() {
   const [timeLeft, setTimeLeft] = useState(0);
   const [isActive, setIsActive] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   
   // Refs for timer and speech
   const intervalRef = useRef(null);
   const speechSynthesis = useRef(null);
   const startTimeRef = useRef(0);
   const perRepSecondsRef = useRef(0);
+  const femaleVoice = useRef(null);
+  const speechQueue = useRef([]);
+  const isSpeakingRef = useRef(false);
 
   // Initialize speech synthesis
   useEffect(() => {
     speechSynthesis.current = window.speechSynthesis;
+    
+    // Load voices and find a female voice
+    const loadVoices = () => {
+      const voices = speechSynthesis.current.getVoices();      
+      femaleVoice.current = voices.find(voice => voice.name.toLowerCase().includes('zira'));
+      
+      // Fallback to first available voice if no female found
+      if (!femaleVoice.current && voices.length > 0) {
+        femaleVoice.current = voices[0];
+      }
+    };
+    
+    // Some browsers require this event
+    speechSynthesis.current.onvoiceschanged = loadVoices;
+    loadVoices();
+    
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, []);
 
@@ -44,34 +64,86 @@ function App() {
     return () => clearInterval(intervalRef.current);
   }, [isActive, timeLeft]);
 
-  // Speak text using Web Speech API
-  const speak = (text) => {
-    if (speechSynthesis.current) {
+  // Synchronous speak function using promises
+  const speak = async (text) => {
+    return new Promise((resolve) => {
+      if (!speechSynthesis.current || !femaleVoice.current) {
+        resolve();
+        return;
+      }
+      
+      setIsSpeaking(true);
+      isSpeakingRef.current = true;
+      
+      // Cancel any ongoing speech
+      speechSynthesis.current.cancel();
+      
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.volume = 1;
       utterance.rate = 1.2;
-      utterance.pitch = 1;
+      utterance.pitch = 1.2;
+      utterance.voice = femaleVoice.current;
+      
+      utterance.onend = () => {
+        setIsSpeaking(false);
+        isSpeakingRef.current = false;
+        resolve();
+      };
+      
+      utterance.onerror = () => {
+        setIsSpeaking(false);
+        isSpeakingRef.current = false;
+        resolve();
+      };
+      
       speechSynthesis.current.speak(utterance);
+    });
+  };
+
+  // Process speech queue
+  const processSpeechQueue = async () => {
+    while (speechQueue.current.length > 0) {
+      const text = speechQueue.current[0];
+      await speak(text);
+      speechQueue.current.shift();
+    }
+  };
+
+  // Add to speech queue and process
+  const enqueueSpeech = (text) => {
+    speechQueue.current.push(text);
+    if (!isSpeakingRef.current) {
+      processSpeechQueue();
     }
   };
 
   // Handle repetition end
-  const handleRepEnd = () => {
+  const handleRepEnd = async () => {
     clearInterval(intervalRef.current);
+    
     if (currentRep < repetitions) {
+      // Announce next repetition
+      await speak(`Problem ${currentRep + 1}`);
+      
       setCurrentRep(prev => prev + 1);
       setTimeLeft(perRepSecondsRef.current);
-      speak(`Problem ${currentRep + 1}`);
       startTimeRef.current = Date.now();
+      
+      // Continue timer
+      if (isActive) {
+        intervalRef.current = setInterval(() => {
+          setTimeLeft(prev => prev - 1);
+        }, 1000);
+      }
     } else {
       setIsActive(false);
       setIsComplete(true);
-      speak('All problems completed');
+      enqueueSpeech('All problems completed');
     }
   };
 
   // Start the timer
-  const startTimer = () => {
+  const startTimer = async () => {
     if (!isActive) {
       // Reset if starting from completion
       if (isComplete) {
@@ -85,7 +157,7 @@ function App() {
       setIsActive(true);
       
       // Announce first repetition
-      speak(`Problem ${currentRep}`);
+      await speak(`Problem ${currentRep}`);
     }
   };
 
@@ -101,27 +173,28 @@ function App() {
     setIsComplete(false);
     setCurrentRep(1);
     setTimeLeft(perRepSecondsRef.current);
+    speechSynthesis.current.cancel();
+    setIsSpeaking(false);
+    isSpeakingRef.current = false;
+    speechQueue.current = [];
   };
 
   // Skip current repetition
-  const skipRepetition = () => {
+  const skipRepetition = async () => {
     if (!isActive) return;
     
-    speak(formatTimeMessage());
+    // Speak synchronously before handling rep end
+    await speak(formatTimeMessage());
     handleRepEnd();
   };
-
   // Format time display
   const formatTimeMessage = () => {
     let elapsedMessage = "Good, you are ahead by ";
     const mins = Math.floor(timeLeft / 60);
     const secs = timeLeft % 60;
-    if (mins > 0) {
-      elapsedMessage += `${mins} minute${mins > 1 ? 's' : ''} `;
-    }
-    if (secs > 0 || secs === 0) {
-      elapsedMessage += `${secs} second${secs !== 1 ? 's' : ''}`;
-    }
+    if (mins > 0) elapsedMessage += `${mins} minute${mins > 1 ? 's' : ''} `;
+    if (secs > 0 || secs === 0) elapsedMessage += `${secs} second${secs !== 1 ? 's' : ''}`;
+
     return elapsedMessage;
   };
 
@@ -155,7 +228,7 @@ function App() {
               value={totalMinutes} 
               onChange={(e) => setTotalMinutes(parseInt(e.target.value) || 0)}
               min="0"
-              disabled={isActive || (currentRep > 1 && !isComplete)}
+              disabled={isActive || (currentRep > 1 && !isComplete) || isSpeaking}
             />
           </div>
           
@@ -166,7 +239,7 @@ function App() {
               value={repetitions} 
               onChange={(e) => setRepetitions(parseInt(e.target.value) || 1)}
               min="1"
-              disabled={isActive || (currentRep > 1 && !isComplete)}
+              disabled={isActive || (currentRep > 1 && !isComplete) || isSpeaking}
             />
           </div>
           
@@ -185,18 +258,21 @@ function App() {
 
         <div className="buttons">
           {!isActive ? (
-            <button onClick={startTimer} disabled={(totalMinutes === 0) || repetitions < 1}>
+            <button 
+              onClick={startTimer} 
+              disabled={(totalMinutes === 0) || repetitions < 1 || isSpeaking}
+            >
               Start
             </button>
           ) : (
             <>
-              <button onClick={pauseTimer}>Pause</button>
-              <button onClick={skipRepetition} className="skip-btn">
+              <button onClick={pauseTimer} disabled={isSpeaking}>Pause</button>
+              <button onClick={skipRepetition} className="skip-btn" disabled={isSpeaking}>
                 Completed
               </button>
             </>
           )}
-          <button onClick={resetTimer}>Reset</button>
+          <button onClick={resetTimer} disabled={isSpeaking}>Reset</button>
         </div>
       </div>
       
