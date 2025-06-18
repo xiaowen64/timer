@@ -1,23 +1,213 @@
-import logo from './logo.svg';
+// src/App.js
+import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 
 function App() {
+  // State management
+  const [totalMinutes, setTotalMinutes] = useState(0);
+  const [repetitions, setRepetitions] = useState(3);
+  const [currentRep, setCurrentRep] = useState(1);
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [isActive, setIsActive] = useState(false);
+  const [isComplete, setIsComplete] = useState(false);
+  
+  // Refs for timer and speech
+  const intervalRef = useRef(null);
+  const speechSynthesis = useRef(null);
+  const startTimeRef = useRef(0);
+  const perRepSecondsRef = useRef(0);
+
+  // Initialize speech synthesis
+  useEffect(() => {
+    speechSynthesis.current = window.speechSynthesis;
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, []);
+
+  // Calculate time per repetition
+  useEffect(() => {
+    const totalTimeInSeconds = totalMinutes * 60;
+    const perRep = repetitions > 0 ? Math.round(totalTimeInSeconds / repetitions) : 0;
+    perRepSecondsRef.current = perRep;
+    if (!isActive) { setTimeLeft(perRep); }
+  }, [totalMinutes, repetitions, isActive]);
+
+  // Timer functionality
+  useEffect(() => {
+    if (isActive && timeLeft > 0) {
+      intervalRef.current = setInterval(() => { setTimeLeft(prev => prev - 1); }, 1000);
+    } else if (isActive && timeLeft === 0) {
+      handleRepEnd();
+    } else {
+      clearInterval(intervalRef.current);
+    }
+
+    return () => clearInterval(intervalRef.current);
+  }, [isActive, timeLeft]);
+
+  // Speak text using Web Speech API
+  const speak = (text) => {
+    if (speechSynthesis.current) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.volume = 1;
+      utterance.rate = 1.2;
+      utterance.pitch = 1;
+      speechSynthesis.current.speak(utterance);
+    }
+  };
+
+  // Handle repetition end
+  const handleRepEnd = () => {
+    clearInterval(intervalRef.current);
+    if (currentRep < repetitions) {
+      setCurrentRep(prev => prev + 1);
+      setTimeLeft(perRepSecondsRef.current);
+      speak(`Problem ${currentRep + 1}`);
+      startTimeRef.current = Date.now();
+    } else {
+      setIsActive(false);
+      setIsComplete(true);
+      speak('All problems completed');
+    }
+  };
+
+  // Start the timer
+  const startTimer = () => {
+    if (!isActive) {
+      // Reset if starting from completion
+      if (isComplete) {
+        setCurrentRep(1);
+        setIsComplete(false);
+      }
+      
+      // Set initial time
+      setTimeLeft(perRepSecondsRef.current);
+      startTimeRef.current = Date.now();
+      setIsActive(true);
+      
+      // Announce first repetition
+      speak(`Problem ${currentRep}`);
+    }
+  };
+
+  // Pause the timer
+  const pauseTimer = () => {
+    setIsActive(false);
+  };
+
+  // Reset the timer
+  const resetTimer = () => {
+    clearInterval(intervalRef.current);
+    setIsActive(false);
+    setIsComplete(false);
+    setCurrentRep(1);
+    setTimeLeft(perRepSecondsRef.current);
+  };
+
+  // Skip current repetition
+  const skipRepetition = () => {
+    if (!isActive) return;
+    
+    speak(formatTimeMessage());
+    handleRepEnd();
+  };
+
+  // Format time display
+  const formatTimeMessage = () => {
+    let elapsedMessage = "Good, you are ahead by ";
+    const mins = Math.floor(timeLeft / 60);
+    const secs = timeLeft % 60;
+    if (mins > 0) {
+      elapsedMessage += `${mins} minute${mins > 1 ? 's' : ''} `;
+    }
+    if (secs > 0 || secs === 0) {
+      elapsedMessage += `${secs} second${secs !== 1 ? 's' : ''}`;
+    }
+    return elapsedMessage;
+  };
+
+  // Format time display
+  const formatTime = () => {
+    const mins = Math.floor(timeLeft / 60);
+    const secs = timeLeft % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Format time per repetition
+  const formatPerRepTime = () => {
+    const mins = Math.floor(perRepSecondsRef.current / 60);
+    const secs = perRepSecondsRef.current % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+    <div className="app">
+      <div className="header">
+        <h1>Problem Timer</h1>
+        <p>Time the progress as you go!</p>
+      </div>
+      
+      <div className="card">
+        <div className="controls">
+          <div className="input-group">
+            <label>Total Minutes:</label>
+            <input 
+              type="number" 
+              value={totalMinutes} 
+              onChange={(e) => setTotalMinutes(parseInt(e.target.value) || 0)}
+              min="0"
+              disabled={isActive || (currentRep > 1 && !isComplete)}
+            />
+          </div>
+          
+          <div className="input-group">
+            <label>Number of Problems:</label>
+            <input 
+              type="number" 
+              value={repetitions} 
+              onChange={(e) => setRepetitions(parseInt(e.target.value) || 1)}
+              min="1"
+              disabled={isActive || (currentRep > 1 && !isComplete)}
+            />
+          </div>
+          
+          <div className="summary">
+            <p>Time per problem: <span>{formatPerRepTime()}</span></p>
+          </div>
+        </div>
+
+        <div className="timer-display">
+          <div className="repetition">Problem: {currentRep} / {repetitions}</div>
+          <div className="time">{formatTime()}</div>
+          <div className="status">
+            {isComplete ? 'Completed!' : isActive ? 'Running...' : 'Ready'}
+          </div>
+        </div>
+
+        <div className="buttons">
+          {!isActive ? (
+            <button onClick={startTimer} disabled={(totalMinutes === 0) || repetitions < 1}>
+              Start
+            </button>
+          ) : (
+            <>
+              <button onClick={pauseTimer}>Pause</button>
+              <button onClick={skipRepetition} className="skip-btn">
+                Completed
+              </button>
+            </>
+          )}
+          <button onClick={resetTimer}>Reset</button>
+        </div>
+      </div>
+      
+      <div className="instructions">
+        <h3>How to Use:</h3>
+        <ol>
+          <li>Enter the total time in minutes and the number of problems</li>
+          <li>Click Start</li>
+          <li>Use Completed to end current problem early</li>
+        </ol>
+      </div>
     </div>
   );
 }
