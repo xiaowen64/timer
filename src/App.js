@@ -28,7 +28,7 @@ function App() {
     // Load voices and find a female voice
     const loadVoices = () => {
       const voices = speechSynthesis.current.getVoices();      
-      femaleVoice.current = voices.find(voice => voice.name.toLowerCase().includes('zira'));
+      femaleVoice.current = voices.find(voice => voice.name.toLowerCase().includes('zira') || voice.name.toLowerCase().includes('ava'));
       
       // Fallback to first available voice if no female found
       if (!femaleVoice.current && voices.length > 0) {
@@ -123,7 +123,7 @@ function App() {
     
     if (currentRep < repetitions) {
       // Announce next repetition
-      await speak(`Helen, please work on problem ${currentRep + 1}`);
+      await speak(`Work on problem ${currentRep + 1}`);
       
       setCurrentRep(prev => prev + 1);
       setTimeLeft(perRepSecondsRef.current);
@@ -157,7 +157,7 @@ function App() {
       setIsActive(true);
       
       // Announce first repetition
-      await speak(`Helen, please work on problem ${currentRep}`);
+      await speak(`Work on problem ${currentRep}`);
     }
   };
 
@@ -274,15 +274,6 @@ function App() {
           )}
           <button onClick={resetTimer} disabled={isSpeaking}>Reset</button>
         </div>
-      </div>
-      
-      <div className="instructions">
-        <h3>How to Use:</h3>
-        <ol>
-          <li>Enter the total time in minutes and the number of problems</li>
-          <li>Click Start</li>
-          <li>Use Completed to end current problem early</li>
-        </ol>
       </div>
     </div>
   );
