@@ -123,7 +123,7 @@ function App() {
     
     if (currentRep < repetitions) {
       // Announce next repetition
-      await speak(`Problem ${currentRep + 1}`);
+      await speak(`helen, please work on problem ${currentRep + 1}`);
       
       setCurrentRep(prev => prev + 1);
       setTimeLeft(perRepSecondsRef.current);
